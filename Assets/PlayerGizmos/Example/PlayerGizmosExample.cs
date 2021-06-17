@@ -9,11 +9,18 @@ using UnityEngine;
 public class PlayerGizmosExample : MonoBehaviour
 {
 	public bool usePlayerGizmos = true;
+	public bool useAnimatedMatrix = true;
+	public UnityExtensions.Layer _playerGizmoLayer = new UnityExtensions.Layer( 1 );
+	
 
 
 	void Update()
 	{
 		if( !usePlayerGizmos ) return;
+
+		PlayerGizmos.layer = _playerGizmoLayer.index;
+
+		PlayerGizmos.matrix = GetAnimatedMatrix();
 
 		PlayerGizmos.color = Color.yellow;
 		PlayerGizmos.DrawLine( Vector3.zero, Vector3.up );
@@ -22,21 +29,22 @@ public class PlayerGizmosExample : MonoBehaviour
 		PlayerGizmos.DrawWireCube( Vector3.right, Vector3.one * 0.5f );
 
 		PlayerGizmos.color = Color.magenta;
-		PlayerGizmos.DrawWireSphere( Vector3.left, 0.5f );
+		PlayerGizmos.DrawWireSphere( Vector3.right*2, 0.5f );
 
-		Camera cam = Camera.main;
-		if( cam ) {
-			PlayerGizmos.color = Color.red;
-			PlayerGizmos.matrix = Matrix4x4.TRS( cam.transform.position, cam.transform.rotation, Vector3.one );
-			PlayerGizmos.DrawFrustum( Vector3.zero, cam.fieldOfView, cam.nearClipPlane, cam.farClipPlane, cam.aspect );
-			PlayerGizmos.matrix = Matrix4x4.identity;
-		}
+		PlayerGizmos.color = Color.red;
+		PlayerGizmos.DrawFrustum( Vector3.left*2, 60, 0.5f, 4, 1.77f );
+
+		PlayerGizmos.matrix = Matrix4x4.identity;
+
+		PlayerGizmos.layer = 0;
 	}
 
 
 	void OnDrawGizmos()
 	{
 		if( usePlayerGizmos ) return;
+		
+		Gizmos.matrix = GetAnimatedMatrix();
 
 		Gizmos.color = Color.yellow;
 		Gizmos.DrawLine( Vector3.zero, Vector3.up );
@@ -45,14 +53,22 @@ public class PlayerGizmosExample : MonoBehaviour
 		Gizmos.DrawWireCube( Vector3.right, Vector3.one * 0.5f );
 
 		Gizmos.color = Color.magenta;
-		Gizmos.DrawWireSphere( Vector3.left, 0.5f );
+		Gizmos.DrawWireSphere( Vector3.right * 2, 0.5f );
 
-		Camera cam = Camera.main;
-		if( cam ) {
-			Gizmos.color = Color.red;
-			Gizmos.matrix = Matrix4x4.TRS( cam.transform.position, cam.transform.rotation, Vector3.one );
-			Gizmos.DrawFrustum( Vector3.zero, cam.fieldOfView, cam.nearClipPlane, cam.farClipPlane, cam.aspect );
-			Gizmos.matrix = Matrix4x4.identity;
-		}
+		Gizmos.color = Color.red;
+		Gizmos.DrawFrustum( Vector3.left*2, 60, 0.5f, 4, 1.77f );
+
+		Gizmos.matrix = Matrix4x4.identity;
+	}
+
+
+	Matrix4x4 GetAnimatedMatrix()
+	{
+		float a = useAnimatedMatrix ? Time.time * 0.3f : Mathf.Deg2Rad * 45;
+		return Matrix4x4.TRS(
+			Vector3.right * Mathf.Sin( a ), 
+			Quaternion.Euler( 0, a * Mathf.Rad2Deg, 0 ), 
+			Vector3.one//Vector3.one * Mathf.Lerp( 0.5f, 1, Mathf.Sin( t * 0.8461f + 2.8936f ) * 0.5f + 0.5f )
+		);
 	}
 }

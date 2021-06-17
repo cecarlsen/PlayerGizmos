@@ -6,6 +6,7 @@
 	Not fully featured yet.
 
 	TODO
+		- Move transformations to the GPU. Use custom instancing.
 		- Add remaining shapes.
 		- Use new Mesh API (combining positions and colors into one array).
 */
@@ -20,21 +21,89 @@ public class PlayerGizmos : MonoBehaviour
 	static PlayerGizmos _self;
 
 	Material _lineMaterial;
-	Mesh _lineMesh;
 
-	List<Camera> _activeCameras = new List<Camera>();
-	CommandBuffer _commandBuffer;
+	Dictionary<int,LayerData> _layerLookup = new Dictionary<int,LayerData>();
 
-	public static Color color = Color.white;
-	public static Matrix4x4 matrix = Matrix4x4.identity;
+	Color _color = Color.white;
+	Matrix4x4 _matrix = Matrix4x4.identity;
+	int _layer;
 
-	List<Vector3> _lineVertices = new List<Vector3>();
-	List<Color32> _lineColors = new List<Color32>();
-	List<ushort> _lineIndices = new List<ushort>();
+	
 
 	Vector2[] _unitCircleLookup;
 
 	const CameraEvent renderEvent = CameraEvent.AfterForwardAlpha;
+	const string logPrepend = "<b>[" + nameof( PlayerGizmos ) + "]</b> ";
+
+
+	public static Color color {
+		get {
+			if( !_self ) Init();
+			return _self._color;
+		}
+		set {
+			if( !_self ) Init();
+			_self._color = value;
+		}
+	}
+
+	public static Matrix4x4 matrix {
+		get {
+			if( !_self ) Init();
+			return _self._matrix;
+		}
+		set {
+			if( !_self ) Init();
+			_self._matrix = value;
+		}
+	}
+
+	public static int layer {
+		get {
+			if( !_self ) Init();
+			return _self._layer;
+		}
+		set {
+			if( value < 0 || value >= 32 ) {
+				Debug.LogWarning( logPrepend+ "Layer index must be between 0-31\n" );
+				return;
+			}
+			if( !_self ) Init();
+			_self._layer = value;
+		}
+	}
+
+
+	class LayerData
+	{
+		public Mesh lineMesh;
+		public List<Vector3> lineVertices = new List<Vector3>();
+		public List<Color32> lineColors = new List<Color32>();
+		public List<ushort> lineIndices = new List<ushort>();
+
+		public int vertexCount => lineVertices.Count;
+
+
+		public LayerData()
+		{
+			lineMesh = new Mesh();
+			lineMesh.name = nameof( PlayerGizmos );
+			lineMesh.hideFlags = HideFlags.HideAndDontSave;
+		}
+
+
+		public void UploadToMesh()
+		{
+			lineMesh.Clear();
+			lineMesh.SetVertices( lineVertices );
+			lineMesh.SetIndices( lineIndices, MeshTopology.Lines, 0 );
+			lineMesh.SetColors( lineColors );
+
+			lineVertices.Clear();
+			lineIndices.Clear();
+			lineColors.Clear();
+		}
+	}
 
 
 	void Awake()
@@ -53,47 +122,19 @@ public class PlayerGizmos : MonoBehaviour
 	}
 
 
-	void OnEnable()
-	{
-		Camera.onPreRender += OnPreRenderCamera;
-	}
-
-
-	void OnDisable()
-	{
-		Camera.onPreRender -= OnPreRenderCamera;
-		foreach( Camera cam in _activeCameras ) if( cam && _commandBuffer != null ) cam.RemoveCommandBuffer( renderEvent, _commandBuffer );
-	}
-
-
 	void LateUpdate()
 	{
 		EnsureResources();
 
-		if( _lineVertices.Count == 0 )
+		foreach( KeyValuePair<int,LayerData> pair in _layerLookup )
 		{
-			if( _lineMesh.vertexCount > 0 ) _lineMesh.Clear();
-			return;
+			int layer = pair.Key;
+			LayerData data = pair.Value;
+			if( data.vertexCount == 0 ) continue;
+
+			pair.Value.UploadToMesh();
+			Graphics.DrawMesh( data.lineMesh, Matrix4x4.identity, _lineMaterial, layer );
 		}
-
-		_lineMesh.SetVertices( _lineVertices );
-		_lineMesh.SetIndices( _lineIndices, MeshTopology.Lines, 0 );
-		_lineMesh.SetColors( _lineColors );
-
-		_lineVertices.Clear();
-		_lineIndices.Clear();
-		_lineColors.Clear();
-	}
-
-
-	void OnPreRenderCamera( Camera cam )
-	{
-		if( cam.cameraType == CameraType.Preview || _activeCameras.Contains( cam ) ) return;
-		_activeCameras.Add( cam );
-
-		EnsureResources();
-
-		cam.AddCommandBuffer( renderEvent, _commandBuffer );
 	}
 
 
@@ -114,113 +155,106 @@ public class PlayerGizmos : MonoBehaviour
 			_lineMaterial = new Material( Shader.Find( "Hidden/" + nameof( PlayerGizmos ) ) );
 			_lineMaterial.name = nameof( PlayerGizmos );
 		}
-		if( !_lineMesh ) {
-			_lineMesh = new Mesh();
-			_lineMesh.name = nameof( PlayerGizmos );
-
-		}
-		if( _commandBuffer == null ) {
-			_commandBuffer = new CommandBuffer();
-			_commandBuffer.name = nameof( PlayerGizmos );
-			_commandBuffer.DrawMesh( _lineMesh, Matrix4x4.identity, _lineMaterial, 0 );
-		}
 	}
 
 
 	public static void DrawLine( Vector3 posA, Vector3 posB )
 	{
 		if( !_self ) Init();
-		ushort i = (ushort) _self._lineVertices.Count;
-		_self._lineVertices.Add( matrix.MultiplyPoint3x4( posA ) );
-		_self._lineVertices.Add( matrix.MultiplyPoint3x4( posB ) );
-		_self._lineColors.Add( color );
-		_self._lineColors.Add( color );
-		_self._lineIndices.Add( i );
-		_self._lineIndices.Add( (ushort) (i+1) );
+		LayerData data = _self.GetOrCreateLayerData();
+
+		ushort i = (ushort) data.lineVertices.Count;
+		data.lineVertices.Add( _self._matrix.MultiplyPoint3x4( posA ) );
+		data.lineVertices.Add( _self._matrix.MultiplyPoint3x4( posB ) );
+		data.lineColors.Add( _self._color );
+		data.lineColors.Add( _self._color );
+		data.lineIndices.Add( i );
+		data.lineIndices.Add( (ushort) (i+1) );
 	}
 
 
 	public static void DrawWireCube( Vector3 center, Vector3 size )
 	{
 		if( !_self ) Init();
+		LayerData data = _self.GetOrCreateLayerData();
 
 		Vector3 extents = size * 0.5f;
-		Vector3 min = matrix.MultiplyPoint3x4( center - extents );
-		Vector3 max = matrix.MultiplyPoint3x4( center + extents );
-		ushort i = (ushort) _self._lineVertices.Count;
-		_self._lineVertices.Add( min );
-		_self._lineVertices.Add( new Vector3( max.x, min.y, min.z ) );
-		_self._lineVertices.Add( new Vector3( max.x, min.y, max.z ) );
-		_self._lineVertices.Add( new Vector3( min.x, min.y, max.z ) );
-		_self._lineVertices.Add( new Vector3( min.x, max.y, min.z ) );
-		_self._lineVertices.Add( new Vector3( max.x, max.y, min.z ) );
-		_self._lineVertices.Add( max );
-		_self._lineVertices.Add( new Vector3( min.x, max.y, max.z ) );
-		_self._lineColors.Add( color );
-		_self._lineColors.Add( color );
-		_self._lineColors.Add( color );
-		_self._lineColors.Add( color );
-		_self._lineColors.Add( color );
-		_self._lineColors.Add( color );
-		_self._lineColors.Add( color );
-		_self._lineColors.Add( color );
-		_self._lineIndices.Add( (ushort) (i+0) ); _self._lineIndices.Add( (ushort) (i+1) );
-		_self._lineIndices.Add( (ushort) (i+1) ); _self._lineIndices.Add( (ushort) (i+2) );
-		_self._lineIndices.Add( (ushort) (i+2) ); _self._lineIndices.Add( (ushort) (i+3) );
-		_self._lineIndices.Add( (ushort) (i+3) ); _self._lineIndices.Add( (ushort) (i+0) );
-		_self._lineIndices.Add( (ushort) (i+4) ); _self._lineIndices.Add( (ushort) (i+5) );
-		_self._lineIndices.Add( (ushort) (i+5) ); _self._lineIndices.Add( (ushort) (i+6) );
-		_self._lineIndices.Add( (ushort) (i+6) ); _self._lineIndices.Add( (ushort) (i+7) );
-		_self._lineIndices.Add( (ushort) (i+7) ); _self._lineIndices.Add( (ushort) (i+4) );
-		_self._lineIndices.Add( (ushort) (i+0) ); _self._lineIndices.Add( (ushort) (i+4) );
-		_self._lineIndices.Add( (ushort) (i+1) ); _self._lineIndices.Add( (ushort) (i+5) );
-		_self._lineIndices.Add( (ushort) (i+2) ); _self._lineIndices.Add( (ushort) (i+6) );
-		_self._lineIndices.Add( (ushort) (i+3) ); _self._lineIndices.Add( (ushort) (i+7) );
+		Vector3 min = center - extents;
+		Vector3 max = center + extents;
+		ushort i = (ushort) data.lineVertices.Count;
+		data.lineVertices.Add( _self._matrix.MultiplyPoint3x4( min ) );
+		data.lineVertices.Add( _self._matrix.MultiplyPoint3x4( new Vector3( max.x, min.y, min.z ) ) );
+		data.lineVertices.Add( _self._matrix.MultiplyPoint3x4( new Vector3( max.x, min.y, max.z ) ) );
+		data.lineVertices.Add( _self._matrix.MultiplyPoint3x4( new Vector3( min.x, min.y, max.z ) ) );
+		data.lineVertices.Add( _self._matrix.MultiplyPoint3x4( new Vector3( min.x, max.y, min.z ) ) );
+		data.lineVertices.Add( _self._matrix.MultiplyPoint3x4( new Vector3( max.x, max.y, min.z ) ));
+		data.lineVertices.Add( _self._matrix.MultiplyPoint3x4( max ) );
+		data.lineVertices.Add( _self._matrix.MultiplyPoint3x4( new Vector3( min.x, max.y, max.z ) ) );
+		data.lineColors.Add( _self._color );
+		data.lineColors.Add( _self._color );
+		data.lineColors.Add( _self._color );
+		data.lineColors.Add( _self._color );
+		data.lineColors.Add( _self._color );
+		data.lineColors.Add( _self._color );
+		data.lineColors.Add( _self._color );
+		data.lineColors.Add( _self._color );
+		data.lineIndices.Add( (ushort) (i+0) ); data.lineIndices.Add( (ushort) (i+1) );
+		data.lineIndices.Add( (ushort) (i+1) ); data.lineIndices.Add( (ushort) (i+2) );
+		data.lineIndices.Add( (ushort) (i+2) ); data.lineIndices.Add( (ushort) (i+3) );
+		data.lineIndices.Add( (ushort) (i+3) ); data.lineIndices.Add( (ushort) (i+0) );
+		data.lineIndices.Add( (ushort) (i+4) ); data.lineIndices.Add( (ushort) (i+5) );
+		data.lineIndices.Add( (ushort) (i+5) ); data.lineIndices.Add( (ushort) (i+6) );
+		data.lineIndices.Add( (ushort) (i+6) ); data.lineIndices.Add( (ushort) (i+7) );
+		data.lineIndices.Add( (ushort) (i+7) ); data.lineIndices.Add( (ushort) (i+4) );
+		data.lineIndices.Add( (ushort) (i+0) ); data.lineIndices.Add( (ushort) (i+4) );
+		data.lineIndices.Add( (ushort) (i+1) ); data.lineIndices.Add( (ushort) (i+5) );
+		data.lineIndices.Add( (ushort) (i+2) ); data.lineIndices.Add( (ushort) (i+6) );
+		data.lineIndices.Add( (ushort) (i+3) ); data.lineIndices.Add( (ushort) (i+7) );
 	}
 
 
 	public static void DrawWireSphere( Vector3 center, float radius )
 	{
 		if( !_self ) Init();
+		LayerData data = _self.GetOrCreateLayerData();
 		if( _self._unitCircleLookup == null ) _self.CreateUnitCircleLookup();
 
-		ushort i = (ushort) _self._lineVertices.Count;
+		ushort i = (ushort) data.lineVertices.Count;
 		ushort i0 = i;
 		ushort pLast = (ushort) ( _self._unitCircleLookup.Length-1 );
 		for( ushort p = 0; p < _self._unitCircleLookup.Length; p++ ) {
-			Vector3 point = _self._unitCircleLookup[ p ];
+			Vector2 point = _self._unitCircleLookup[ p ];
 			float da = point.x * radius;
 			float db = point.y * radius;
-			_self._lineVertices.Add( new Vector3( center.x, center.y + da, center.z + db ) );
-			_self._lineColors.Add( color );
-			_self._lineIndices.Add( i++ ); _self._lineIndices.Add( p == pLast ? i0 : (ushort) (i+2) );
-			_self._lineVertices.Add( new Vector3( center.x + da, center.y, center.z + db ) );
-			_self._lineColors.Add( color );
-			_self._lineIndices.Add( i++ ); _self._lineIndices.Add( p == pLast ? (ushort) (i0+1) : (ushort) (i+2) );
-			_self._lineVertices.Add( new Vector3( center.x + da, center.y + db, center.z ) );
-			_self._lineColors.Add( color );
-			_self._lineIndices.Add( i++ ); _self._lineIndices.Add( p == pLast ? (ushort) (i0+1) : (ushort) (i+2) );
+			data.lineVertices.Add( _self._matrix.MultiplyPoint3x4( new Vector3( center.x, center.y + da, center.z + db ) ) );
+			data.lineVertices.Add( _self._matrix.MultiplyPoint3x4( new Vector3( center.x + da, center.y, center.z + db ) ) );
+			data.lineVertices.Add( _self._matrix.MultiplyPoint3x4( new Vector3( center.x + da, center.y + db, center.z ) ) );
+			data.lineColors.Add( _self._color );
+			data.lineColors.Add( _self._color );
+			data.lineColors.Add( _self._color );
+			data.lineIndices.Add( i++ ); data.lineIndices.Add( p == pLast ? i0 : (ushort) (i+2) );
+			data.lineIndices.Add( i++ ); data.lineIndices.Add( p == pLast ? (ushort) (i0+1) : (ushort) (i+2) );
+			data.lineIndices.Add( i++ ); data.lineIndices.Add( p == pLast ? (ushort) (i0+1) : (ushort) (i+2) );
 		}
 	}
-
 
 
 	public static void DrawWireCircle( Vector3 center, float radius )
 	{
 		if( !_self ) Init();
+		LayerData data = _self.GetOrCreateLayerData();
 		if( _self._unitCircleLookup == null ) _self.CreateUnitCircleLookup();
 
-		ushort i = (ushort) _self._lineVertices.Count;
+		ushort i = (ushort) data.lineVertices.Count;
 		ushort iFirst = i;
 		ushort pLast = (ushort) (_self._unitCircleLookup.Length-1);
 		for( ushort p = 0; p < _self._unitCircleLookup.Length; p++ ) {
-			Vector3 point = _self._unitCircleLookup[p];
+			Vector2 point = _self._unitCircleLookup[ p ];
 			float xOff = point.x * radius;
 			float yOff = point.y * radius;
-			_self._lineVertices.Add( new Vector3( center.x + xOff, center.y + yOff, center.y ) );
-			_self._lineColors.Add( color );
-			_self._lineIndices.Add( i );
-			_self._lineIndices.Add( p == pLast ? iFirst : ++i );
+			data.lineVertices.Add( _self._matrix.MultiplyPoint3x4( new Vector3( center.x + xOff, center.y + yOff, center.y ) ) );
+			data.lineColors.Add( _self._color );
+			data.lineIndices.Add( i ); data.lineIndices.Add( p == pLast ? iFirst : ++i );
 		}
 	}
 
@@ -228,51 +262,61 @@ public class PlayerGizmos : MonoBehaviour
 	public static void DrawFrustum( Vector3 center, float fov, float maxRange, float minRange, float aspect )
 	{
 		if( !_self ) Init();
+		LayerData data = _self.GetOrCreateLayerData();
 
 		float extents = Mathf.Tan( Mathf.Deg2Rad * fov * 0.5f );
 		float extentsY = extents * minRange;
 		float extentsX = extentsY * aspect;
 		float z = center.z + minRange;
-		ushort i = (ushort) _self._lineVertices.Count;
-		_self._lineVertices.Add( matrix.MultiplyPoint3x4( new Vector3( center.x - extentsX, center.y - extentsY, z ) ) );
-		_self._lineVertices.Add( matrix.MultiplyPoint3x4( new Vector3( center.x + extentsX, center.y - extentsY, z ) ) );
-		_self._lineVertices.Add( matrix.MultiplyPoint3x4( new Vector3( center.x + extentsX, center.y + extentsY, z ) ) );
-		_self._lineVertices.Add( matrix.MultiplyPoint3x4( new Vector3( center.x - extentsX, center.y + extentsY, z ) ) );
+		ushort i = (ushort) data.lineVertices.Count;
+		data.lineVertices.Add( _self._matrix.MultiplyPoint3x4( new Vector3( center.x - extentsX, center.y - extentsY, z ) ) );
+		data.lineVertices.Add( _self._matrix.MultiplyPoint3x4( new Vector3( center.x + extentsX, center.y - extentsY, z ) ) );
+		data.lineVertices.Add( _self._matrix.MultiplyPoint3x4( new Vector3( center.x + extentsX, center.y + extentsY, z ) ) );
+		data.lineVertices.Add( _self._matrix.MultiplyPoint3x4( new Vector3( center.x - extentsX, center.y + extentsY, z ) ) );
 		extentsY = extents * maxRange;
 		extentsX = extentsY * aspect;
 		z = center.z + maxRange;
-		_self._lineVertices.Add( matrix.MultiplyPoint3x4( new Vector3( center.x - extentsX, center.y - extentsY, z ) ) );
-		_self._lineVertices.Add( matrix.MultiplyPoint3x4( new Vector3( center.x + extentsX, center.y - extentsY, z ) ) );
-		_self._lineVertices.Add( matrix.MultiplyPoint3x4( new Vector3( center.x + extentsX, center.y + extentsY, z ) ) );
-		_self._lineVertices.Add( matrix.MultiplyPoint3x4( new Vector3( center.x - extentsX, center.y + extentsY, z ) ) );
-		_self._lineColors.Add( color );
-		_self._lineColors.Add( color );
-		_self._lineColors.Add( color );
-		_self._lineColors.Add( color );
-		_self._lineColors.Add( color );
-		_self._lineColors.Add( color );
-		_self._lineColors.Add( color );
-		_self._lineColors.Add( color );
-		_self._lineIndices.Add( (ushort) (i+0) ); _self._lineIndices.Add( (ushort) (i+1) );
-		_self._lineIndices.Add( (ushort) (i+1) ); _self._lineIndices.Add( (ushort) (i+2) );
-		_self._lineIndices.Add( (ushort) (i+2) ); _self._lineIndices.Add( (ushort) (i+3) );
-		_self._lineIndices.Add( (ushort) (i+3) ); _self._lineIndices.Add( (ushort) (i+0) );
-		_self._lineIndices.Add( (ushort) (i+0) ); _self._lineIndices.Add( (ushort) (i+1) );
-		_self._lineIndices.Add( (ushort) (i+1) ); _self._lineIndices.Add( (ushort) (i+2) );
-		_self._lineIndices.Add( (ushort) (i+2) ); _self._lineIndices.Add( (ushort) (i+3) );
-		_self._lineIndices.Add( (ushort) (i+3) ); _self._lineIndices.Add( (ushort) (i+0) );
-		_self._lineIndices.Add( (ushort) (i+4) ); _self._lineIndices.Add( (ushort) (i+5) );
-		_self._lineIndices.Add( (ushort) (i+5) ); _self._lineIndices.Add( (ushort) (i+6) );
-		_self._lineIndices.Add( (ushort) (i+6) ); _self._lineIndices.Add( (ushort) (i+7) );
-		_self._lineIndices.Add( (ushort) (i+7) ); _self._lineIndices.Add( (ushort) (i+4) );
-		_self._lineIndices.Add( (ushort) (i+0) ); _self._lineIndices.Add( (ushort) (i+4) );
-		_self._lineIndices.Add( (ushort) (i+1) ); _self._lineIndices.Add( (ushort) (i+5) );
-		_self._lineIndices.Add( (ushort) (i+2) ); _self._lineIndices.Add( (ushort) (i+6) );
-		_self._lineIndices.Add( (ushort) (i+3) ); _self._lineIndices.Add( (ushort) (i+7) );
+		data.lineVertices.Add( _self._matrix.MultiplyPoint3x4( new Vector3( - extentsX, - extentsY, z ) ) );
+		data.lineVertices.Add( _self._matrix.MultiplyPoint3x4( new Vector3( + extentsX, - extentsY, z ) ) );
+		data.lineVertices.Add( _self._matrix.MultiplyPoint3x4( new Vector3( + extentsX, + extentsY, z ) ) );
+		data.lineVertices.Add( _self._matrix.MultiplyPoint3x4( new Vector3( - extentsX, + extentsY, z ) ) );
+		data.lineColors.Add( _self._color );
+		data.lineColors.Add( _self._color );
+		data.lineColors.Add( _self._color );
+		data.lineColors.Add( _self._color );
+		data.lineColors.Add( _self._color );
+		data.lineColors.Add( _self._color );
+		data.lineColors.Add( _self._color );
+		data.lineColors.Add( _self._color );
+		data.lineIndices.Add( (ushort) (i+0) ); data.lineIndices.Add( (ushort) (i+1) );
+		data.lineIndices.Add( (ushort) (i+1) ); data.lineIndices.Add( (ushort) (i+2) );
+		data.lineIndices.Add( (ushort) (i+2) ); data.lineIndices.Add( (ushort) (i+3) );
+		data.lineIndices.Add( (ushort) (i+3) ); data.lineIndices.Add( (ushort) (i+0) );
+		data.lineIndices.Add( (ushort) (i+0) ); data.lineIndices.Add( (ushort) (i+1) );
+		data.lineIndices.Add( (ushort) (i+1) ); data.lineIndices.Add( (ushort) (i+2) );
+		data.lineIndices.Add( (ushort) (i+2) ); data.lineIndices.Add( (ushort) (i+3) );
+		data.lineIndices.Add( (ushort) (i+3) ); data.lineIndices.Add( (ushort) (i+0) );
+		data.lineIndices.Add( (ushort) (i+4) ); data.lineIndices.Add( (ushort) (i+5) );
+		data.lineIndices.Add( (ushort) (i+5) ); data.lineIndices.Add( (ushort) (i+6) );
+		data.lineIndices.Add( (ushort) (i+6) ); data.lineIndices.Add( (ushort) (i+7) );
+		data.lineIndices.Add( (ushort) (i+7) ); data.lineIndices.Add( (ushort) (i+4) );
+		data.lineIndices.Add( (ushort) (i+0) ); data.lineIndices.Add( (ushort) (i+4) );
+		data.lineIndices.Add( (ushort) (i+1) ); data.lineIndices.Add( (ushort) (i+5) );
+		data.lineIndices.Add( (ushort) (i+2) ); data.lineIndices.Add( (ushort) (i+6) );
+		data.lineIndices.Add( (ushort) (i+3) ); data.lineIndices.Add( (ushort) (i+7) );
 	}
 
 
+	LayerData GetOrCreateLayerData()
+	{
+		LayerData data;
+		if( _layerLookup.TryGetValue( _layer, out data ) ) return data;
+		data = new LayerData();
+		_layerLookup.Add( _layer, data );
+		return data;
+	}
 
+	
 	void CreateUnitCircleLookup()
 	{
 		if( _unitCircleLookup != null ) return;
@@ -283,5 +327,4 @@ public class PlayerGizmos : MonoBehaviour
 			_unitCircleLookup[i] = new Vector2( Mathf.Cos( a ), Mathf.Sin( a ) );
 		}
 	}
-
 }
