@@ -1,4 +1,10 @@
-1.0.2 (2016/06/17)
+1.0.3 (2021/07/06)
+------------------
+
+* Fixed position bug in DrawWireCircle.
+
+
+1.0.2 (2021/06/17)
 ------------------
 
 * Fixed out of bounds error.
@@ -6,7 +12,7 @@
 * Added support for layers.
 
 
-1.0.1 (2016/06/16)
+1.0.1 (2021/06/16)
 ------------------
 
 * Added DrawWireSphere and DrawWireCircle.

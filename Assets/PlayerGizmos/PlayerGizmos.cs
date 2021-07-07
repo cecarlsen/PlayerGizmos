@@ -252,7 +252,7 @@ public class PlayerGizmos : MonoBehaviour
 			Vector2 point = _self._unitCircleLookup[ p ];
 			float xOff = point.x * radius;
 			float yOff = point.y * radius;
-			data.lineVertices.Add( _self._matrix.MultiplyPoint3x4( new Vector3( center.x + xOff, center.y + yOff, center.y ) ) );
+			data.lineVertices.Add( _self._matrix.MultiplyPoint3x4( new Vector3( center.x + xOff, center.y + yOff, center.z ) ) );
 			data.lineColors.Add( _self._color );
 			data.lineIndices.Add( i ); data.lineIndices.Add( p == pLast ? iFirst : ++i );
 		}
