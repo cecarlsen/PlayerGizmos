@@ -173,6 +173,29 @@ public class PlayerGizmos : MonoBehaviour
 	}
 
 
+	public static void DrawRect( Rect rect )
+	{
+		if( !_self ) Init();
+		LayerData data = _self.GetOrCreateLayerData();
+
+		ushort i = (ushort) data.lineVertices.Count;
+		Vector2 min = rect.min;
+		Vector2 max = rect.max;
+		data.lineVertices.Add( _self._matrix.MultiplyPoint3x4( new Vector3( min.x, min.y ) ) );
+		data.lineVertices.Add( _self._matrix.MultiplyPoint3x4( new Vector3( min.x, max.y ) ) );
+		data.lineVertices.Add( _self._matrix.MultiplyPoint3x4( new Vector3( max.x, max.y ) ) );
+		data.lineVertices.Add( _self._matrix.MultiplyPoint3x4( new Vector3( max.x, min.y ) ) );
+		data.lineColors.Add( _self._color );
+		data.lineColors.Add( _self._color );
+		data.lineColors.Add( _self._color );
+		data.lineColors.Add( _self._color );
+		data.lineIndices.Add( i ); data.lineIndices.Add( (ushort) ( i + 1 ) );
+		data.lineIndices.Add( (ushort) ( i + 1 ) ); data.lineIndices.Add( (ushort) ( i + 2 ) );
+		data.lineIndices.Add( (ushort) ( i + 2 ) ); data.lineIndices.Add( (ushort) ( i + 3 ) );
+		data.lineIndices.Add( (ushort) ( i + 3 ) ); data.lineIndices.Add( i );
+	}
+
+
 	public static void DrawWireCube( Vector3 center, Vector3 size )
 	{
 		if( !_self ) Init();

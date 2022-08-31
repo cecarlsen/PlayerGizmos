@@ -34,6 +34,9 @@ public class PlayerGizmosExample : MonoBehaviour
 		PlayerGizmos.color = Color.red;
 		PlayerGizmos.DrawFrustum( Vector3.left*2, 60, 0.5f, 4, 1.77f );
 
+		PlayerGizmos.color = Color.cyan;
+		PlayerGizmos.DrawRect( new Rect( 3, -0.25f, 0.5f, 0.5f ) );
+
 		PlayerGizmos.matrix = Matrix4x4.identity;
 
 		PlayerGizmos.layer = 0;
